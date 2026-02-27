@@ -1,0 +1,53 @@
+{
+  "nodes": [
+    {
+      "id": "input_node",
+      "type": "Input",
+      "label": "User Image Upload",
+      "nodeCategory": "input"
+    },
+    {
+      "id": "ocr_agent",
+      "type": "Agent",
+      "label": "OCR Processing Agent",
+      "nodeCategory": "agent"
+    },
+    {
+      "id": "output_node",
+      "type": "Output",
+      "label": "WRT File Output",
+      "nodeCategory": "end"
+    }
+  ],
+  "edges": [
+    {
+      "source": "input_node",
+      "target": "ocr_agent"
+    },
+    {
+      "source": "ocr_agent",
+      "target": "output_node"
+    }
+  ],
+  "agents": [
+    {
+      "node_id": "ocr_agent",
+      "agent_id": "69a141d1f77666f08532da44",
+      "name": "OCR Processing Agent",
+      "description": "Receives an image file path, preprocesses the image using OpenCV (grayscale conversion, adaptive thresholding), extracts text using Tesseract OCR, validates that text was successfully extracted, cleans the output, saves the result as a .wrt file, and triggers auto-open in Notepad++. Handles errors such as invalid image format, empty OCR result, or file save failures.",
+      "agent_role": "OCR Text Extraction and Processing Specialist",
+      "agent_goal": "Extract text from user-provided images with high accuracy, clean and validate the extracted text, and return structured results including the extracted text, status, and metadata.",
+      "provider_id": "openai",
+      "model": "gpt-4.1",
+      "temperature": 0.2,
+      "top_p": 1,
+      "agent_type": "json",
+      "capabilities": {
+        "image_output": false,
+        "voice": false,
+        "file_output": false,
+        "knowledge_base": false
+      }
+    }
+  ]
+}

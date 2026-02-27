@@ -1,0 +1,28 @@
+{
+  "agent_name": "OCR Processing Agent",
+  "agent_id": "69a141d1f77666f08532da44",
+  "description": "Receives an image file path, preprocesses the image using OpenCV (grayscale conversion, adaptive thresholding), extracts text using Tesseract OCR, validates that text was successfully extracted, cleans the output, saves the result as a .wrt file, and triggers auto-open in Notepad++. Handles errors such as invalid image format, empty OCR result, or file save failures.",
+  "agent_type": "json",
+  "accessor": "result",
+  "auto_generated": true,
+  "response_schema": {
+    "result": {
+      "extracted_text": "string",
+      "status": "string",
+      "message": "string",
+      "filename": "string",
+      "word_count": "number"
+    },
+    "additionalProperties": {}
+  },
+  "example_response": {
+    "result": {
+      "extracted_text": "The full cleaned and validated text extracted from the image",
+      "status": "Whether text extraction was successful or encountered an error",
+      "message": "A descriptive message about the processing result",
+      "filename": "Suggested .wrt filename based on the content",
+      "word_count": 0
+    },
+    "additionalProperties": {}
+  }
+}

@@ -1,26 +1,542 @@
-/**
- * MAIN PAGE - Build your UI here!
- *
- * FILE STRUCTURE:
- * - app/page.tsx         <- YOU ARE HERE - main page
- * - app/layout.tsx       <- root layout
- * - app/api/             <- API routes (server-side)
- * - components/ui/       <- shadcn/ui components
- * - lib/utils.ts         <- cn() helper
- * - lib/aiAgent.ts       <- AI agent client utilities
- */
+'use client'
 
-export default function Page() {
+import React, { useState, useRef, useCallback } from 'react'
+import { callAIAgent, uploadFiles } from '@/lib/aiAgent'
+import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
+import { Button } from '@/components/ui/button'
+import { Switch } from '@/components/ui/switch'
+import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
+import { FiFileText, FiUpload, FiImage, FiCheck, FiCheckCircle, FiAlertCircle, FiLoader, FiDownload, FiX, FiCopy, FiInfo } from 'react-icons/fi'
+
+// --- Constants ---
+const AGENT_ID = '69a141d1f77666f08532da44'
+const AGENT_NAME = 'OCR Processing Agent'
+
+// --- Monokai Theme ---
+const THEME_VARS = {
+  '--background': '70 10% 12%',
+  '--foreground': '60 30% 96%',
+  '--card': '70 10% 16%',
+  '--card-foreground': '60 30% 96%',
+  '--primary': '52 100% 62%',
+  '--primary-foreground': '70 10% 10%',
+  '--secondary': '70 10% 22%',
+  '--secondary-foreground': '60 30% 96%',
+  '--accent': '80 80% 50%',
+  '--accent-foreground': '70 10% 8%',
+  '--destructive': '338 95% 55%',
+  '--muted': '70 10% 26%',
+  '--muted-foreground': '50 6% 58%',
+  '--border': '70 8% 22%',
+  '--input': '70 8% 28%',
+  '--ring': '80 76% 53%',
+  '--radius': '0rem',
+} as React.CSSProperties
+
+// --- Interfaces ---
+interface OCRResult {
+  extracted_text?: string
+  status?: string
+  message?: string
+  filename?: string
+  word_count?: number
+}
+
+// --- Sample Data ---
+const SAMPLE_RESULT: OCRResult = {
+  extracted_text: `INVOICE #2024-0847
+
+From: Acme Corporation
+      123 Business Avenue
+      San Francisco, CA 94102
+
+To:   Widget Industries
+      456 Commerce Street
+      New York, NY 10001
+
+Date: February 15, 2024
+Due:  March 15, 2024
+
+Description                    Qty    Unit Price    Total
+-------------------------------------------------------
+Widget Assembly Kit             10     $45.00      $450.00
+Premium Connector Pack           5     $28.50      $142.50
+Industrial Mounting Bracket      3     $67.00      $201.00
+Calibration Service              1    $150.00      $150.00
+
+                              Subtotal:            $943.50
+                              Tax (8.5%):           $80.20
+                              TOTAL:             $1,023.70
+
+Payment Terms: Net 30
+Thank you for your business.`,
+  status: 'success',
+  message: 'Text extraction completed successfully. Output saved as invoice_2024_0847.wrt',
+  filename: 'invoice_2024_0847',
+  word_count: 87,
+}
+
+// --- ErrorBoundary ---
+class ErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { hasError: boolean; error: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props)
+    this.state = { hasError: false, error: '' }
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { hasError: true, error: error.message }
+  }
+  render() {
+    if (this.state.hasError) {
+      return (
+        <div className="min-h-screen flex items-center justify-center bg-background text-foreground">
+          <div className="text-center p-8 max-w-md">
+            <h2 className="text-xl font-semibold mb-2">Something went wrong</h2>
+            <p className="text-muted-foreground mb-4 text-sm">{this.state.error}</p>
+            <button
+              onClick={() => this.setState({ hasError: false, error: '' })}
+              className="px-4 py-2 bg-primary text-primary-foreground text-sm"
+            >
+              Try again
+            </button>
+          </div>
+        </div>
+      )
+    }
+    return this.props.children
+  }
+}
+
+// --- Status Component ---
+type StatusType = 'idle' | 'loaded' | 'processing' | 'success' | 'error'
+
+function StatusBar({ status, message }: { status: StatusType; message: string }) {
+  const config: Record<StatusType, { icon: React.ReactNode; bgClass: string; textClass: string; borderClass: string }> = {
+    idle: {
+      icon: <FiInfo className="w-4 h-4 flex-shrink-0" />,
+      bgClass: 'bg-secondary',
+      textClass: 'text-muted-foreground',
+      borderClass: 'border-border',
+    },
+    loaded: {
+      icon: <FiImage className="w-4 h-4 flex-shrink-0" />,
+      bgClass: 'bg-secondary',
+      textClass: 'text-secondary-foreground',
+      borderClass: 'border-border',
+    },
+    processing: {
+      icon: <FiLoader className="w-4 h-4 flex-shrink-0 animate-spin" />,
+      bgClass: 'bg-secondary',
+      textClass: 'text-foreground',
+      borderClass: 'border-primary',
+    },
+    success: {
+      icon: <FiCheckCircle className="w-4 h-4 flex-shrink-0" />,
+      bgClass: 'bg-accent/10',
+      textClass: 'text-accent',
+      borderClass: 'border-accent/40',
+    },
+    error: {
+      icon: <FiAlertCircle className="w-4 h-4 flex-shrink-0" />,
+      bgClass: 'bg-destructive/10',
+      textClass: 'text-destructive',
+      borderClass: 'border-destructive/40',
+    },
+  }
+
+  const c = config[status]
+
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 to-gray-800 flex items-center justify-center">
-      <div className="text-center">
-        <h1 className="text-4xl font-bold text-white mb-4">
-          Ready to Build Something Amazing!
-        </h1>
-        <p className="text-gray-300 text-lg">
-          Next.js + React + TypeScript + Tailwind CSS
-        </p>
+    <div className={`flex items-center gap-2 px-4 py-3 border-t ${c.bgClass} ${c.textClass} ${c.borderClass}`}>
+      {c.icon}
+      <span className="text-sm font-mono">{message}</span>
+    </div>
+  )
+}
+
+// --- Agent Info Component ---
+function AgentInfoPanel({ activeAgentId }: { activeAgentId: string | null }) {
+  return (
+    <div className="border border-border bg-card px-4 py-3">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <div className={`w-2 h-2 ${activeAgentId ? 'bg-accent animate-pulse' : 'bg-muted-foreground'}`} />
+          <span className="text-xs font-mono text-muted-foreground">{AGENT_NAME}</span>
+        </div>
+        <Badge variant="outline" className="text-xs font-mono border-border text-muted-foreground">
+          {activeAgentId ? 'Processing' : 'Ready'}
+        </Badge>
       </div>
     </div>
+  )
+}
+
+// --- Main Page ---
+export default function Page() {
+  // State
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
+  const [ocrResult, setOcrResult] = useState<OCRResult | null>(null)
+  const [status, setStatus] = useState<StatusType>('idle')
+  const [statusMessage, setStatusMessage] = useState('Select an image to begin')
+  const [loading, setLoading] = useState(false)
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
+  const [showSampleData, setShowSampleData] = useState(false)
+  const [copied, setCopied] = useState(false)
+
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Effective data (real or sample)
+  const effectiveResult = showSampleData ? SAMPLE_RESULT : ocrResult
+  const effectiveStatus = showSampleData ? 'success' as StatusType : status
+  const effectiveStatusMessage = showSampleData
+    ? 'Conversion complete! Saved as invoice_2024_0847.wrt'
+    : statusMessage
+  const effectiveImagePreview = showSampleData
+    ? 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzAwIiBoZWlnaHQ9IjIwMCIgdmlld0JveD0iMCAwIDMwMCAyMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PHJlY3Qgd2lkdGg9IjMwMCIgaGVpZ2h0PSIyMDAiIGZpbGw9IiMyZDJkMmQiLz48dGV4dCB4PSIxNTAiIHk9IjkwIiBmb250LWZhbWlseT0ibW9ub3NwYWNlIiBmb250LXNpemU9IjE0IiBmaWxsPSIjZjhmOGYyIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIj5JTlZPSUNFICMyMDI0LTA4NDc8L3RleHQ+PHRleHQgeD0iMTUwIiB5PSIxMTUiIGZvbnQtZmFtaWx5PSJtb25vc3BhY2UiIGZvbnQtc2l6ZT0iMTEiIGZpbGw9IiM3NWI1YWEiIHRleHQtYW5jaG9yPSJtaWRkbGUiPnNhbXBsZV9pbnZvaWNlLnBuZzwvdGV4dD48L3N2Zz4='
+    : imagePreviewUrl
+  const effectiveFileName = showSampleData ? 'sample_invoice.png' : selectedFile?.name
+
+  // Handlers
+  const handleSelectImage = useCallback(() => {
+    fileInputRef.current?.click()
+  }, [])
+
+  const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setSelectedFile(file)
+    setOcrResult(null)
+
+    // Create image preview
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      setImagePreviewUrl(ev.target?.result as string)
+    }
+    reader.readAsDataURL(file)
+
+    setStatus('loaded')
+    setStatusMessage(`Image loaded: ${file.name}. Ready to convert.`)
+  }, [])
+
+  const handleConvert = useCallback(async () => {
+    if (!selectedFile) return
+
+    setLoading(true)
+    setStatus('processing')
+    setStatusMessage('Processing... Extracting text')
+    setActiveAgentId(AGENT_ID)
+    setOcrResult(null)
+
+    try {
+      // Upload file first to get asset_id
+      const uploadResult = await uploadFiles(selectedFile)
+
+      if (!uploadResult.success || uploadResult.asset_ids.length === 0) {
+        setStatus('error')
+        setStatusMessage(`Upload failed: ${uploadResult.error ?? 'Could not upload image'}. Please try again.`)
+        setLoading(false)
+        setActiveAgentId(null)
+        return
+      }
+
+      // Call agent with uploaded asset
+      const agentMessage = `Extract text from the uploaded image file "${selectedFile.name}" using OCR. Process the image with grayscale conversion and adaptive thresholding, then extract and clean the text. Save the result as a .wrt file.`
+      const result = await callAIAgent(agentMessage, AGENT_ID, {
+        assets: uploadResult.asset_ids,
+      })
+
+      if (result.success) {
+        const data: OCRResult = {
+          extracted_text: result?.response?.result?.extracted_text ?? '',
+          status: result?.response?.result?.status ?? 'unknown',
+          message: result?.response?.result?.message ?? '',
+          filename: result?.response?.result?.filename ?? selectedFile.name.replace(/\.[^.]+$/, ''),
+          word_count: result?.response?.result?.word_count ?? 0,
+        }
+        setOcrResult(data)
+
+        if (data.status === 'success' || (data.extracted_text && data.extracted_text.length > 0)) {
+          setStatus('success')
+          setStatusMessage(`Conversion complete! Saved as ${data.filename ?? 'output'}.wrt`)
+        } else {
+          setStatus('error')
+          setStatusMessage(data.message || 'OCR extraction returned no text. Try a clearer image.')
+        }
+      } else {
+        setStatus('error')
+        setStatusMessage(result?.error ?? 'Agent call failed. Please check your image and try again.')
+      }
+    } catch (err) {
+      setStatus('error')
+      setStatusMessage(err instanceof Error ? err.message : 'An unexpected error occurred. Please try again.')
+    } finally {
+      setLoading(false)
+      setActiveAgentId(null)
+    }
+  }, [selectedFile])
+
+  const handleDownloadWrt = useCallback(() => {
+    const text = effectiveResult?.extracted_text
+    if (!text) return
+
+    const filename = effectiveResult?.filename ?? 'extracted_text'
+    const blob = new Blob([text], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `${filename}.wrt`
+    a.click()
+    URL.revokeObjectURL(url)
+  }, [effectiveResult])
+
+  const handleCopyText = useCallback(async () => {
+    const text = effectiveResult?.extracted_text
+    if (!text) return
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Fallback for older browsers
+      const textarea = document.createElement('textarea')
+      textarea.value = text
+      document.body.appendChild(textarea)
+      textarea.select()
+      document.execCommand('copy')
+      document.body.removeChild(textarea)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    }
+  }, [effectiveResult])
+
+  const handleReset = useCallback(() => {
+    setSelectedFile(null)
+    setImagePreviewUrl(null)
+    setOcrResult(null)
+    setStatus('idle')
+    setStatusMessage('Select an image to begin')
+    if (fileInputRef.current) {
+      fileInputRef.current.value = ''
+    }
+  }, [])
+
+  const hasResult = effectiveResult && (effectiveResult.extracted_text?.length ?? 0) > 0
+
+  return (
+    <ErrorBoundary>
+      <div style={THEME_VARS} className="min-h-screen bg-background text-foreground font-sans">
+        {/* Hidden file input */}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".png,.jpg,.jpeg,.gif,.bmp,.tiff,.webp"
+          onChange={handleFileChange}
+          className="hidden"
+        />
+
+        <div className="max-w-3xl mx-auto px-4 py-8 space-y-4">
+          {/* Header */}
+          <div className="flex items-start justify-between">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 bg-primary flex items-center justify-center flex-shrink-0">
+                <FiFileText className="w-5 h-5 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold tracking-tight text-foreground">OCR Image-to-WRT Converter</h1>
+                <p className="text-sm text-muted-foreground">Extract text from images and save as .wrt files.</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 pt-1">
+              <Label htmlFor="sample-toggle" className="text-xs text-muted-foreground font-mono cursor-pointer select-none">
+                Sample Data
+              </Label>
+              <Switch
+                id="sample-toggle"
+                checked={showSampleData}
+                onCheckedChange={setShowSampleData}
+              />
+            </div>
+          </div>
+
+          <Separator className="bg-border" />
+
+          {/* Main Card */}
+          <Card className="border-border bg-card shadow-sm">
+            <CardHeader className="pb-4">
+              <CardTitle className="text-base font-semibold text-card-foreground">Image Source</CardTitle>
+              <CardDescription className="text-muted-foreground text-xs font-mono">
+                Supported formats: PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP
+              </CardDescription>
+            </CardHeader>
+
+            <CardContent className="space-y-4">
+              {/* Image Preview Area */}
+              <div className="border border-border bg-background">
+                {effectiveImagePreview ? (
+                  <div className="p-4 space-y-3">
+                    <div className="flex items-center justify-center bg-secondary/50 border border-border overflow-hidden" style={{ maxHeight: '240px' }}>
+                      <img
+                        src={effectiveImagePreview}
+                        alt="Selected image preview"
+                        className="max-w-[300px] max-h-[200px] object-contain"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2 text-sm">
+                      <FiImage className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      <span className="font-mono text-xs text-foreground truncate">{effectiveFileName ?? 'image'}</span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="flex flex-col items-center justify-center py-12 px-6 border border-dashed border-muted-foreground/30 m-3">
+                    <FiUpload className="w-8 h-8 text-muted-foreground mb-3" />
+                    <p className="text-sm text-muted-foreground font-mono">No image selected</p>
+                    <p className="text-xs text-muted-foreground mt-1">Click &quot;Select Image&quot; to get started</p>
+                  </div>
+                )}
+              </div>
+
+              {/* Action Buttons */}
+              <div className="flex gap-3">
+                <Button
+                  variant="outline"
+                  onClick={handleSelectImage}
+                  disabled={loading || showSampleData}
+                  className="flex-1 border-border font-mono text-sm"
+                >
+                  <FiUpload className="w-4 h-4 mr-2" />
+                  Select Image
+                </Button>
+                <Button
+                  onClick={handleConvert}
+                  disabled={(!selectedFile && !showSampleData) || loading || showSampleData}
+                  className="flex-1 bg-primary text-primary-foreground font-mono text-sm hover:bg-primary/90"
+                >
+                  {loading ? (
+                    <>
+                      <FiLoader className="w-4 h-4 mr-2 animate-spin" />
+                      Converting...
+                    </>
+                  ) : (
+                    <>
+                      <FiFileText className="w-4 h-4 mr-2" />
+                      Convert
+                    </>
+                  )}
+                </Button>
+                {(selectedFile || ocrResult) && !showSampleData && (
+                  <Button
+                    variant="ghost"
+                    onClick={handleReset}
+                    disabled={loading}
+                    className="text-muted-foreground hover:text-foreground font-mono text-sm px-3"
+                  >
+                    <FiX className="w-4 h-4" />
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+
+            {/* Status Bar */}
+            <CardFooter className="flex-col items-stretch p-0">
+              <StatusBar status={effectiveStatus} message={effectiveStatusMessage} />
+            </CardFooter>
+          </Card>
+
+          {/* Results Card */}
+          {hasResult && (
+            <Card className="border-border bg-card shadow-sm">
+              <CardHeader className="pb-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <FiCheckCircle className="w-4 h-4 text-accent" />
+                    <CardTitle className="text-base font-semibold text-card-foreground">Extracted Text</CardTitle>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    {(effectiveResult?.word_count ?? 0) > 0 && (
+                      <Badge variant="secondary" className="font-mono text-xs bg-secondary text-secondary-foreground border border-border">
+                        {effectiveResult?.word_count} words
+                      </Badge>
+                    )}
+                    {effectiveResult?.filename && (
+                      <Badge variant="outline" className="font-mono text-xs border-border text-muted-foreground">
+                        {effectiveResult.filename}.wrt
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                {effectiveResult?.message && (
+                  <CardDescription className="text-xs font-mono text-muted-foreground mt-1">
+                    {effectiveResult.message}
+                  </CardDescription>
+                )}
+              </CardHeader>
+
+              <CardContent className="space-y-3 pt-0">
+                {/* Text Display */}
+                <div className="border border-border bg-background">
+                  <ScrollArea className="h-[300px]">
+                    <pre className="p-4 text-sm font-mono text-foreground whitespace-pre-wrap break-words leading-relaxed">
+                      {effectiveResult?.extracted_text ?? ''}
+                    </pre>
+                  </ScrollArea>
+                </div>
+
+                {/* Result Actions */}
+                <div className="flex gap-3">
+                  <Button
+                    onClick={handleDownloadWrt}
+                    className="flex-1 bg-primary text-primary-foreground font-mono text-sm hover:bg-primary/90"
+                  >
+                    <FiDownload className="w-4 h-4 mr-2" />
+                    Download as .wrt
+                  </Button>
+                  <Button
+                    variant="outline"
+                    onClick={handleCopyText}
+                    className="border-border font-mono text-sm"
+                  >
+                    {copied ? (
+                      <>
+                        <FiCheck className="w-4 h-4 mr-2 text-accent" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <FiCopy className="w-4 h-4 mr-2" />
+                        Copy
+                      </>
+                    )}
+                  </Button>
+                </div>
+
+                {/* Status badge */}
+                {effectiveResult?.status && (
+                  <div className="flex items-center gap-2 pt-1">
+                    <span className="text-xs font-mono text-muted-foreground">Status:</span>
+                    <Badge
+                      variant={effectiveResult.status === 'success' ? 'default' : 'destructive'}
+                      className={effectiveResult.status === 'success' ? 'font-mono text-xs bg-accent text-accent-foreground' : 'font-mono text-xs'}
+                    >
+                      {effectiveResult.status}
+                    </Badge>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Agent Info */}
+          <AgentInfoPanel activeAgentId={activeAgentId} />
+        </div>
+      </div>
+    </ErrorBoundary>
   )
 }

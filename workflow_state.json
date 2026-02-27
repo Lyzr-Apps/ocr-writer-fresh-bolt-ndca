@@ -1,0 +1,20 @@
+{
+  "agents": [
+    {
+      "node_id": "ocr_agent",
+      "agent_id": "69a141d1f77666f08532da44",
+      "name": "OCR Processing Agent",
+      "agent_type": "json",
+      "model": "gpt-4.1",
+      "provider": "openai",
+      "capabilities": {
+        "image_output": false,
+        "voice": false,
+        "file_output": false,
+        "knowledge_base": false
+      }
+    }
+  ],
+  "workflow_pattern": "single_agent",
+  "created_at": "2026-02-27"
+}
