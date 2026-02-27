@@ -321,27 +321,121 @@ export default function Page() {
       }
 
       // Call agent with uploaded asset
-      const agentMessage = `Extract text from the uploaded image file "${selectedFile.name}" using OCR. Process the image with grayscale conversion and adaptive thresholding, then extract and clean the text. Save the result as a .wrt file.`
+      const agentMessage = `Extract all text from the uploaded image file "${selectedFile.name}" using OCR. Return the extracted text in the "extracted_text" field of your JSON response. Set status to "success" if text was found.`
       const result = await callAIAgent(agentMessage, AGENT_ID, {
         assets: uploadResult.asset_ids,
       })
 
+      // Debug: log the full response structure to help diagnose issues
+      console.log('[OCR Debug] Full agent response:', JSON.stringify(result, null, 2))
+
       if (result.success) {
+        // Robust extraction: try multiple response paths
+        const resp = result?.response
+        const respResult = resp?.result
+        const rawStr = result?.raw_response
+
+        // Try to extract text from various possible response shapes
+        const extractText = (): string => {
+          // Path 1: Standard schema — response.result.extracted_text
+          if (respResult?.extracted_text && typeof respResult.extracted_text === 'string') {
+            return respResult.extracted_text
+          }
+          // Path 2: Text wrapped — response.result.text
+          if (respResult?.text && typeof respResult.text === 'string') {
+            return respResult.text
+          }
+          // Path 3: Content field — response.result.content
+          if (respResult?.content && typeof respResult.content === 'string') {
+            return respResult.content
+          }
+          // Path 4: Response field — response.result.response
+          if (respResult?.response && typeof respResult.response === 'string') {
+            return respResult.response
+          }
+          // Path 5: Message at response level — response.message
+          if (resp?.message && typeof resp.message === 'string' && resp.message.length > 20) {
+            return resp.message
+          }
+          // Path 6: Result is a string itself
+          if (typeof respResult === 'string' && respResult.length > 0) {
+            return respResult
+          }
+          // Path 7: Nested deeper — response.result.result (double-wrapped)
+          if (respResult?.result && typeof respResult.result === 'object') {
+            const inner = respResult.result
+            if (inner?.extracted_text) return inner.extracted_text
+            if (inner?.text) return inner.text
+            if (inner?.content) return inner.content
+          }
+          if (respResult?.result && typeof respResult.result === 'string') {
+            return respResult.result
+          }
+          // Path 8: Answer fields
+          if (respResult?.answer && typeof respResult.answer === 'string') {
+            return respResult.answer
+          }
+          if (respResult?.answer_text && typeof respResult.answer_text === 'string') {
+            return respResult.answer_text
+          }
+          // Path 9: output field
+          if (respResult?.output && typeof respResult.output === 'string') {
+            return respResult.output
+          }
+          // Path 10: Iterate all string values in result looking for the longest one
+          if (respResult && typeof respResult === 'object') {
+            let longest = ''
+            for (const key of Object.keys(respResult)) {
+              const val = respResult[key]
+              if (typeof val === 'string' && val.length > longest.length) {
+                longest = val
+              }
+            }
+            if (longest.length > 10) return longest
+          }
+          // Path 11: Try parsing raw_response if available
+          if (rawStr && typeof rawStr === 'string') {
+            try {
+              const raw = JSON.parse(rawStr)
+              if (raw?.extracted_text) return raw.extracted_text
+              if (raw?.response?.extracted_text) return raw.response.extracted_text
+              if (raw?.response?.result?.extracted_text) return raw.response.result.extracted_text
+              if (raw?.text) return raw.text
+              if (raw?.response?.text) return raw.response.text
+            } catch {
+              // raw_response isn't JSON — might be the text itself
+              if (rawStr.length > 20 && !rawStr.startsWith('{')) return rawStr
+            }
+          }
+          return ''
+        }
+
+        const extractedText = extractText()
+
+        // Extract other metadata with fallbacks
+        const agentStatus = respResult?.status ?? resp?.status ?? 'unknown'
+        const agentMessage = respResult?.message ?? resp?.message ?? ''
+        const agentFilename = respResult?.filename ?? selectedFile.name.replace(/\.[^.]+$/, '')
+        const agentWordCount = respResult?.word_count ?? (extractedText ? extractedText.trim().split(/\s+/).filter(Boolean).length : 0)
+
         const data: OCRResult = {
-          extracted_text: result?.response?.result?.extracted_text ?? '',
-          status: result?.response?.result?.status ?? 'unknown',
-          message: result?.response?.result?.message ?? '',
-          filename: result?.response?.result?.filename ?? selectedFile.name.replace(/\.[^.]+$/, ''),
-          word_count: result?.response?.result?.word_count ?? 0,
+          extracted_text: extractedText,
+          status: typeof agentStatus === 'string' ? agentStatus : 'unknown',
+          message: typeof agentMessage === 'string' ? agentMessage : '',
+          filename: typeof agentFilename === 'string' ? agentFilename : selectedFile.name.replace(/\.[^.]+$/, ''),
+          word_count: typeof agentWordCount === 'number' ? agentWordCount : (extractedText ? extractedText.trim().split(/\s+/).filter(Boolean).length : 0),
         }
         setOcrResult(data)
 
-        if (data.status === 'success' || (data.extracted_text && data.extracted_text.length > 0)) {
+        console.log('[OCR Debug] Extracted data:', data)
+
+        // Success if we got any meaningful text, regardless of status field value
+        if (extractedText && extractedText.trim().length > 0) {
           setStatus('success')
           setStatusMessage(`Conversion complete! Saved as ${data.filename ?? 'output'}.wrt`)
         } else {
           setStatus('error')
-          setStatusMessage(data.message || 'OCR extraction returned no text. Try a clearer image.')
+          setStatusMessage(data.message || 'No text could be extracted from the image. Try a clearer image with more contrast.')
         }
       } else {
         setStatus('error')
