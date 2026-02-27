@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { FiFileText, FiUpload, FiImage, FiCheck, FiCheckCircle, FiAlertCircle, FiLoader, FiDownload, FiX, FiCopy, FiInfo } from 'react-icons/fi'
+import { FiFileText, FiUpload, FiImage, FiCheck, FiCheckCircle, FiAlertCircle, FiLoader, FiDownload, FiX, FiCopy, FiInfo, FiCamera, FiMonitor } from 'react-icons/fi'
 
 // --- Constants ---
 const AGENT_ID = '69a141d1f77666f08532da44'
@@ -183,13 +183,23 @@ export default function Page() {
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null)
   const [ocrResult, setOcrResult] = useState<OCRResult | null>(null)
   const [status, setStatus] = useState<StatusType>('idle')
-  const [statusMessage, setStatusMessage] = useState('Select an image to begin')
+  const [statusMessage, setStatusMessage] = useState('Select an image or take a screenshot to begin')
   const [loading, setLoading] = useState(false)
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null)
   const [showSampleData, setShowSampleData] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [sourceType, setSourceType] = useState<'file' | 'screenshot' | null>(null)
+  const [screenshotSupported, setScreenshotSupported] = useState(true)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const canvasRef = useRef<HTMLCanvasElement>(null)
+
+  // Check if Screen Capture API is available
+  React.useEffect(() => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) {
+      setScreenshotSupported(false)
+    }
+  }, [])
 
   // Effective data (real or sample)
   const effectiveResult = showSampleData ? SAMPLE_RESULT : ocrResult
@@ -213,6 +223,7 @@ export default function Page() {
 
     setSelectedFile(file)
     setOcrResult(null)
+    setSourceType('file')
 
     // Create image preview
     const reader = new FileReader()
@@ -223,6 +234,69 @@ export default function Page() {
 
     setStatus('loaded')
     setStatusMessage(`Image loaded: ${file.name}. Ready to convert.`)
+  }, [])
+
+  const handleScreenshot = useCallback(async () => {
+    try {
+      setStatus('processing')
+      setStatusMessage('Waiting for screen selection...')
+
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: { displaySurface: 'monitor' } as MediaTrackConstraints,
+      })
+
+      // Create a video element to capture the frame
+      const video = document.createElement('video')
+      video.srcObject = stream
+      await video.play()
+
+      // Wait a brief moment for the video to stabilize
+      await new Promise((resolve) => setTimeout(resolve, 200))
+
+      // Draw to canvas
+      const canvas = canvasRef.current ?? document.createElement('canvas')
+      canvas.width = video.videoWidth
+      canvas.height = video.videoHeight
+      const ctx = canvas.getContext('2d')
+      if (!ctx) {
+        stream.getTracks().forEach((track) => track.stop())
+        setStatus('error')
+        setStatusMessage('Failed to capture screenshot. Canvas context unavailable.')
+        return
+      }
+      ctx.drawImage(video, 0, 0)
+
+      // Stop the stream immediately
+      stream.getTracks().forEach((track) => track.stop())
+
+      // Convert canvas to blob then to File
+      const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'))
+      if (!blob) {
+        setStatus('error')
+        setStatusMessage('Failed to capture screenshot. Could not create image.')
+        return
+      }
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19)
+      const screenshotFile = new File([blob], `screenshot_${timestamp}.png`, { type: 'image/png' })
+
+      // Set state
+      setSelectedFile(screenshotFile)
+      setOcrResult(null)
+      setSourceType('screenshot')
+      setImagePreviewUrl(canvas.toDataURL('image/png'))
+      setStatus('loaded')
+      setStatusMessage(`Screenshot captured: ${screenshotFile.name}. Ready to convert.`)
+    } catch (err) {
+      // User cancelled or permission denied
+      if (err instanceof Error && err.name === 'NotAllowedError') {
+        setStatus('idle')
+        setStatusMessage('Screenshot cancelled. Select an image to begin.')
+      } else {
+        setStatus('error')
+        setStatusMessage(err instanceof Error ? err.message : 'Screenshot capture failed. Try selecting an image file instead.')
+      }
+    }
   }, [])
 
   const handleConvert = useCallback(async () => {
@@ -322,7 +396,8 @@ export default function Page() {
     setImagePreviewUrl(null)
     setOcrResult(null)
     setStatus('idle')
-    setStatusMessage('Select an image to begin')
+    setStatusMessage('Select an image or take a screenshot to begin')
+    setSourceType(null)
     if (fileInputRef.current) {
       fileInputRef.current.value = ''
     }
@@ -341,6 +416,8 @@ export default function Page() {
           onChange={handleFileChange}
           className="hidden"
         />
+        {/* Hidden canvas for screenshot capture */}
+        <canvas ref={canvasRef} className="hidden" />
 
         <div className="max-w-3xl mx-auto px-4 py-8 space-y-4">
           {/* Header */}
@@ -351,7 +428,7 @@ export default function Page() {
               </div>
               <div>
                 <h1 className="text-xl font-bold tracking-tight text-foreground">OCR Image-to-WRT Converter</h1>
-                <p className="text-sm text-muted-foreground">Extract text from images and save as .wrt files.</p>
+                <p className="text-sm text-muted-foreground">Extract text from images or screenshots and save as .wrt files.</p>
               </div>
             </div>
             <div className="flex items-center gap-2 pt-1">
@@ -373,7 +450,7 @@ export default function Page() {
             <CardHeader className="pb-4">
               <CardTitle className="text-base font-semibold text-card-foreground">Image Source</CardTitle>
               <CardDescription className="text-muted-foreground text-xs font-mono">
-                Supported formats: PNG, JPG, JPEG, GIF, BMP, TIFF, WEBP
+                Upload an image file or capture a screenshot from your screen
               </CardDescription>
             </CardHeader>
 
@@ -390,20 +467,33 @@ export default function Page() {
                       />
                     </div>
                     <div className="flex items-center gap-2 text-sm">
-                      <FiImage className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      {sourceType === 'screenshot' ? (
+                        <FiCamera className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      ) : (
+                        <FiImage className="w-4 h-4 text-muted-foreground flex-shrink-0" />
+                      )}
                       <span className="font-mono text-xs text-foreground truncate">{effectiveFileName ?? 'image'}</span>
+                      {sourceType === 'screenshot' && (
+                        <Badge variant="outline" className="text-[10px] font-mono border-accent/40 text-accent px-1.5 py-0">
+                          screenshot
+                        </Badge>
+                      )}
                     </div>
                   </div>
                 ) : (
                   <div className="flex flex-col items-center justify-center py-12 px-6 border border-dashed border-muted-foreground/30 m-3">
-                    <FiUpload className="w-8 h-8 text-muted-foreground mb-3" />
+                    <div className="flex items-center gap-4 mb-3">
+                      <FiUpload className="w-7 h-7 text-muted-foreground" />
+                      <span className="text-muted-foreground/40 text-lg font-mono">or</span>
+                      <FiCamera className="w-7 h-7 text-muted-foreground" />
+                    </div>
                     <p className="text-sm text-muted-foreground font-mono">No image selected</p>
-                    <p className="text-xs text-muted-foreground mt-1">Click &quot;Select Image&quot; to get started</p>
+                    <p className="text-xs text-muted-foreground mt-1">Upload a file or take a screenshot to get started</p>
                   </div>
                 )}
               </div>
 
-              {/* Action Buttons */}
+              {/* Source Buttons */}
               <div className="flex gap-3">
                 <Button
                   variant="outline"
@@ -414,6 +504,21 @@ export default function Page() {
                   <FiUpload className="w-4 h-4 mr-2" />
                   Select Image
                 </Button>
+                {screenshotSupported && (
+                  <Button
+                    variant="outline"
+                    onClick={handleScreenshot}
+                    disabled={loading || showSampleData}
+                    className="flex-1 border-border font-mono text-sm"
+                  >
+                    <FiMonitor className="w-4 h-4 mr-2" />
+                    Screenshot
+                  </Button>
+                )}
+              </div>
+
+              {/* Convert + Reset */}
+              <div className="flex gap-3">
                 <Button
                   onClick={handleConvert}
                   disabled={(!selectedFile && !showSampleData) || loading || showSampleData}
