@@ -115,6 +115,43 @@ function normalizeResponse(parsed: any): NormalizedAgentResponse {
 }
 
 /**
+ * GET /api/agent
+ *
+ * Health-check / proxy-compatibility endpoint.
+ * The sandbox proxy may send GET requests to verify the route exists
+ * before allowing POST requests through.
+ */
+export async function GET() {
+  return NextResponse.json(
+    { status: 'ok', message: 'Agent API is ready. Use POST to submit or poll tasks.' },
+    {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    }
+  )
+}
+
+/**
+ * OPTIONS /api/agent
+ *
+ * CORS preflight handler for cross-origin requests from iframe sandbox.
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, x-api-key',
+      'Access-Control-Max-Age': '86400',
+    },
+  })
+}
+
+/**
  * POST /api/agent
  *
  * Two modes, both POST:

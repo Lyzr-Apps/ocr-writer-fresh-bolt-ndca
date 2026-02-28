@@ -3,6 +3,37 @@ import { NextRequest, NextResponse } from 'next/server'
 const LYZR_UPLOAD_URL = 'https://agent-prod.studio.lyzr.ai/v3/assets/upload'
 const LYZR_API_KEY = process.env.LYZR_API_KEY || ''
 
+/**
+ * GET /api/upload - Health-check for proxy compatibility
+ */
+export async function GET() {
+  return NextResponse.json(
+    { status: 'ok', message: 'Upload API is ready. Use POST with FormData to upload files.' },
+    {
+      headers: {
+        'Access-Control-Allow-Origin': '*',
+        'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+        'Access-Control-Allow-Headers': 'Content-Type',
+      },
+    }
+  )
+}
+
+/**
+ * OPTIONS /api/upload - CORS preflight handler
+ */
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: {
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Headers': 'Content-Type, x-api-key',
+      'Access-Control-Max-Age': '86400',
+    },
+  })
+}
+
 export async function POST(request: NextRequest) {
   try {
     if (!LYZR_API_KEY) {

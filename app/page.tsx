@@ -1,7 +1,6 @@
 'use client'
 
 import React, { useState, useRef, useCallback } from 'react'
-import { callAIAgent, uploadFiles } from '@/lib/aiAgent'
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
@@ -35,6 +34,94 @@ const THEME_VARS = {
   '--ring': '80 76% 53%',
   '--radius': '0rem',
 } as React.CSSProperties
+
+// --- Direct API helpers (bypass fetchWrapper to avoid sandbox iframe errors) ---
+const POLL_TIMEOUT_MS = 5 * 60 * 1000
+
+async function directUploadFiles(file: File): Promise<{ success: boolean; asset_ids: string[]; error?: string }> {
+  const formData = new FormData()
+  formData.append('files', file, file.name)
+
+  const res = await fetch('/api/upload', {
+    method: 'POST',
+    body: formData,
+  })
+
+  if (!res.ok) {
+    return { success: false, asset_ids: [], error: `Upload failed (${res.status})` }
+  }
+
+  const data = await res.json()
+  return {
+    success: data.success ?? false,
+    asset_ids: data.asset_ids ?? [],
+    error: data.error,
+  }
+}
+
+async function directCallAgent(
+  message: string,
+  agentId: string,
+  assets?: string[]
+): Promise<{ success: boolean; response?: any; module_outputs?: any; raw_response?: string; error?: string }> {
+  // 1. Submit task
+  const submitPayload: Record<string, any> = { message, agent_id: agentId }
+  if (assets && assets.length > 0) submitPayload.assets = assets
+
+  const submitRes = await fetch('/api/agent', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(submitPayload),
+  })
+
+  if (!submitRes.ok) {
+    const text = await submitRes.text().catch(() => '')
+    return { success: false, error: `Submit failed (${submitRes.status}): ${text}` }
+  }
+
+  const submitData = await submitRes.json()
+
+  if (!submitData.task_id) {
+    return { success: false, error: submitData.error || 'No task_id returned' }
+  }
+
+  // 2. Poll until done
+  const startTime = Date.now()
+  let attempt = 0
+
+  while (Date.now() - startTime < POLL_TIMEOUT_MS) {
+    const delay = Math.min(300 * Math.pow(1.5, attempt), 3000)
+    await new Promise(r => setTimeout(r, delay))
+    attempt++
+
+    try {
+      const pollRes = await fetch('/api/agent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task_id: submitData.task_id }),
+      })
+
+      if (!pollRes.ok) continue
+
+      const pollData = await pollRes.json()
+
+      if (pollData.status === 'processing') continue
+
+      return {
+        success: pollData.success ?? false,
+        response: pollData.response,
+        module_outputs: pollData.module_outputs,
+        raw_response: pollData.raw_response,
+        error: pollData.error,
+      }
+    } catch {
+      // Poll network error — retry
+      continue
+    }
+  }
+
+  return { success: false, error: 'Agent task timed out after 5 minutes' }
+}
 
 // --- Interfaces ---
 interface OCRResult {
@@ -310,7 +397,7 @@ export default function Page() {
 
     try {
       // Upload file first to get asset_id
-      const uploadResult = await uploadFiles(selectedFile)
+      const uploadResult = await directUploadFiles(selectedFile)
 
       if (!uploadResult.success || uploadResult.asset_ids.length === 0) {
         setStatus('error')
@@ -322,9 +409,7 @@ export default function Page() {
 
       // Call agent with uploaded asset
       const agentMessage = `Extract all text from the uploaded image file "${selectedFile.name}" using OCR. Return the extracted text in the "extracted_text" field of your JSON response. Set status to "success" if text was found.`
-      const result = await callAIAgent(agentMessage, AGENT_ID, {
-        assets: uploadResult.asset_ids,
-      })
+      const result = await directCallAgent(agentMessage, AGENT_ID, uploadResult.asset_ids)
 
       // Debug: log the full response structure to help diagnose issues
       console.log('[OCR Debug] Full agent response:', JSON.stringify(result, null, 2))

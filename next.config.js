@@ -3,6 +3,21 @@ const nextConfig = {
   // Optimize for faster builds
   swcMinify: true,
 
+  // CORS headers for iframe sandbox compatibility
+  async headers() {
+    return [
+      {
+        source: '/api/:path*',
+        headers: [
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET, POST, PUT, DELETE, OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, x-api-key, Authorization' },
+          { key: 'Access-Control-Max-Age', value: '86400' },
+        ],
+      },
+    ]
+  },
+
   // Reduce build time by skipping type checking (run separately)
   typescript: {
     ignoreBuildErrors: true,
