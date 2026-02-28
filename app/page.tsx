@@ -450,18 +450,62 @@ export default function Page() {
     }
   }, [selectedFile])
 
-  const handleDownloadWrt = useCallback(() => {
+  const handleDownloadWrt = useCallback(async () => {
     const text = effectiveResult?.extracted_text
     if (!text) return
 
     const filename = effectiveResult?.filename ?? 'extracted_text'
-    const blob = new Blob([text], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `${filename}.wrt`
-    a.click()
-    URL.revokeObjectURL(url)
+
+    // Try server-side download first (more reliable in sandboxed environments)
+    try {
+      const res = await fetch('/api/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text, filename }),
+      })
+
+      if (res.ok) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${filename}.wrt`
+        a.style.display = 'none'
+        document.body.appendChild(a)
+        a.click()
+        setTimeout(() => {
+          document.body.removeChild(a)
+          URL.revokeObjectURL(url)
+        }, 1000)
+        return
+      }
+    } catch {
+      // Server route failed, fall through to client-side approach
+    }
+
+    // Fallback: client-side Blob download
+    try {
+      const blob = new Blob([text], { type: 'application/octet-stream' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `${filename}.wrt`
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => {
+        document.body.removeChild(a)
+        URL.revokeObjectURL(url)
+      }, 1000)
+    } catch {
+      // Last resort: open in new window so user can save manually
+      const w = window.open('', '_blank')
+      if (w) {
+        w.document.write(`<pre>${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`)
+        w.document.title = `${filename}.wrt`
+        w.document.close()
+      }
+    }
   }, [effectiveResult])
 
   const handleCopyText = useCallback(async () => {
