@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { FiFileText, FiUpload, FiImage, FiCheck, FiCheckCircle, FiAlertCircle, FiLoader, FiDownload, FiX, FiCopy, FiInfo, FiCamera, FiMonitor, FiExternalLink } from 'react-icons/fi'
+import { FiFileText, FiUpload, FiImage, FiCheck, FiCheckCircle, FiAlertCircle, FiLoader, FiDownload, FiX, FiCopy, FiInfo, FiCamera, FiMonitor } from 'react-icons/fi'
 
 // --- Constants ---
 const AGENT_ID = '69a141d1f77666f08532da44'
@@ -414,14 +414,14 @@ export default function Page() {
 
         // Extract other metadata with fallbacks
         const agentStatus = respResult?.status ?? resp?.status ?? 'unknown'
-        const agentMessage = respResult?.message ?? resp?.message ?? ''
+        const agentMsg = respResult?.message ?? resp?.message ?? ''
         const agentFilename = respResult?.filename ?? selectedFile.name.replace(/\.[^.]+$/, '')
         const agentWordCount = respResult?.word_count ?? (extractedText ? extractedText.trim().split(/\s+/).filter(Boolean).length : 0)
 
         const data: OCRResult = {
           extracted_text: extractedText,
           status: typeof agentStatus === 'string' ? agentStatus : 'unknown',
-          message: typeof agentMessage === 'string' ? agentMessage : '',
+          message: typeof agentMsg === 'string' ? agentMsg : '',
           filename: typeof agentFilename === 'string' ? agentFilename : selectedFile.name.replace(/\.[^.]+$/, ''),
           word_count: typeof agentWordCount === 'number' ? agentWordCount : (extractedText ? extractedText.trim().split(/\s+/).filter(Boolean).length : 0),
         }
@@ -455,58 +455,46 @@ export default function Page() {
     if (!text) return
 
     const filename = effectiveResult?.filename ?? 'extracted_text'
+    const safeName = `${filename}.wrt`
 
     // Normalize to CRLF line endings for Notepad++ and add UTF-8 BOM
     const crlfText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n')
-    const BOM = '\uFEFF'
-    const fileContent = BOM + crlfText
 
-    // Method 1: Data URI — no network request, works in all sandboxed environments
-    try {
-      const dataUri = 'data:application/octet-stream;charset=utf-8,' + encodeURIComponent(fileContent)
-      const a = document.createElement('a')
-      a.href = dataUri
-      a.download = `${filename}.wrt`
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      setTimeout(() => {
-        document.body.removeChild(a)
-      }, 500)
-      return
-    } catch {
-      // Data URI failed (unlikely), try Blob
+    // Build file bytes: UTF-8 BOM + content
+    const bom = new Uint8Array([0xEF, 0xBB, 0xBF])
+    const encoder = new TextEncoder()
+    const textBytes = encoder.encode(crlfText)
+    const combined = new Uint8Array(bom.length + textBytes.length)
+    combined.set(bom)
+    combined.set(textBytes, bom.length)
+
+    // Convert to base64 for data URI (most reliable in sandboxed iframes)
+    let binary = ''
+    for (let i = 0; i < combined.length; i++) {
+      binary += String.fromCharCode(combined[i])
+    }
+    const base64 = btoa(binary)
+    const dataUri = `data:application/octet-stream;base64,${base64}`
+
+    // Method 1: Anchor with data URI
+    const a = document.createElement('a')
+    a.href = dataUri
+    a.download = safeName
+    a.style.display = 'none'
+
+    // For sandbox compatibility: target _blank to escape iframe restrictions
+    if (window.self !== window.top) {
+      a.target = '_blank'
     }
 
-    // Method 2: Blob URL fallback
-    try {
-      const bom = new Uint8Array([0xEF, 0xBB, 0xBF])
-      const encoder = new TextEncoder()
-      const textBytes = encoder.encode(crlfText)
-      const combined = new Uint8Array(bom.length + textBytes.length)
-      combined.set(bom)
-      combined.set(textBytes, bom.length)
-      const blob = new Blob([combined], { type: 'application/octet-stream' })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement('a')
-      a.href = url
-      a.download = `${filename}.wrt`
-      a.style.display = 'none'
-      document.body.appendChild(a)
-      a.click()
-      setTimeout(() => {
+    document.body.appendChild(a)
+    a.click()
+
+    setTimeout(() => {
+      if (a.parentNode) {
         document.body.removeChild(a)
-        URL.revokeObjectURL(url)
-      }, 1000)
-    } catch {
-      // Method 3: Open in new tab for manual save
-      const w = window.open('', '_blank')
-      if (w) {
-        w.document.write(`<pre>${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`)
-        w.document.title = `${filename}.wrt`
-        w.document.close()
       }
-    }
+    }, 1000)
   }, [effectiveResult])
 
   const handleCopyText = useCallback(async () => {
