@@ -450,43 +450,36 @@ export default function Page() {
     }
   }, [selectedFile])
 
-  const handleDownloadWrt = useCallback(async () => {
+  const handleDownloadWrt = useCallback(() => {
     const text = effectiveResult?.extracted_text
     if (!text) return
 
     const filename = effectiveResult?.filename ?? 'extracted_text'
 
-    // Try server-side download first (more reliable in sandboxed environments)
-    try {
-      const res = await fetch('/api/download', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text, filename }),
-      })
+    // Normalize to CRLF line endings for Notepad++ and add UTF-8 BOM
+    const crlfText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n')
+    const BOM = '\uFEFF'
+    const fileContent = BOM + crlfText
 
-      if (res.ok) {
-        const blob = await res.blob()
-        const url = URL.createObjectURL(blob)
-        const a = document.createElement('a')
-        a.href = url
-        a.download = `${filename}.wrt`
-        a.style.display = 'none'
-        document.body.appendChild(a)
-        a.click()
-        setTimeout(() => {
-          document.body.removeChild(a)
-          URL.revokeObjectURL(url)
-        }, 1000)
-        return
-      }
+    // Method 1: Data URI — no network request, works in all sandboxed environments
+    try {
+      const dataUri = 'data:application/octet-stream;charset=utf-8,' + encodeURIComponent(fileContent)
+      const a = document.createElement('a')
+      a.href = dataUri
+      a.download = `${filename}.wrt`
+      a.style.display = 'none'
+      document.body.appendChild(a)
+      a.click()
+      setTimeout(() => {
+        document.body.removeChild(a)
+      }, 500)
+      return
     } catch {
-      // Server route failed, fall through to client-side approach
+      // Data URI failed (unlikely), try Blob
     }
 
-    // Fallback: client-side Blob download with Notepad++ formatting
+    // Method 2: Blob URL fallback
     try {
-      // Normalize to CRLF line endings and add UTF-8 BOM for Notepad++
-      const crlfText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n')
       const bom = new Uint8Array([0xEF, 0xBB, 0xBF])
       const encoder = new TextEncoder()
       const textBytes = encoder.encode(crlfText)
@@ -506,7 +499,7 @@ export default function Page() {
         URL.revokeObjectURL(url)
       }, 1000)
     } catch {
-      // Last resort: open in new window so user can save manually
+      // Method 3: Open in new tab for manual save
       const w = window.open('', '_blank')
       if (w) {
         w.document.write(`<pre>${text.replace(/</g, '&lt;').replace(/>/g, '&gt;')}</pre>`)
