@@ -4,8 +4,10 @@ import { NextRequest, NextResponse } from 'next/server'
  * POST /api/download
  *
  * Server-side file download endpoint.
- * Accepts text content and filename, returns as a downloadable file.
- * This is a fallback for environments where client-side Blob downloads are blocked.
+ * Accepts text content and filename, returns as a downloadable .wrt file.
+ * The file is formatted for Notepad++ compatibility:
+ * - UTF-8 encoding with BOM (so Notepad++ auto-detects encoding)
+ * - Windows-style CRLF line endings (standard for Notepad++)
  */
 export async function POST(request: NextRequest) {
   try {
@@ -21,12 +23,24 @@ export async function POST(request: NextRequest) {
 
     const safeFilename = (filename || 'extracted_text').replace(/[^a-zA-Z0-9_\-\.]/g, '_')
 
-    return new NextResponse(content, {
+    // Normalize line endings to Windows CRLF for Notepad++ compatibility
+    const normalizedContent = content.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n')
+
+    // Prepend UTF-8 BOM so Notepad++ detects encoding automatically
+    const BOM = '\uFEFF'
+    const fileContent = BOM + normalizedContent
+
+    // Encode as UTF-8 bytes
+    const encoder = new TextEncoder()
+    const bytes = encoder.encode(fileContent)
+
+    return new NextResponse(bytes, {
       status: 200,
       headers: {
-        'Content-Type': 'application/octet-stream',
+        'Content-Type': 'application/octet-stream; charset=utf-8',
         'Content-Disposition': `attachment; filename="${safeFilename}.wrt"`,
         'Cache-Control': 'no-cache',
+        'Content-Length': bytes.length.toString(),
       },
     })
   } catch (error) {

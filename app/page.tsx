@@ -9,7 +9,7 @@ import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { FiFileText, FiUpload, FiImage, FiCheck, FiCheckCircle, FiAlertCircle, FiLoader, FiDownload, FiX, FiCopy, FiInfo, FiCamera, FiMonitor } from 'react-icons/fi'
+import { FiFileText, FiUpload, FiImage, FiCheck, FiCheckCircle, FiAlertCircle, FiLoader, FiDownload, FiX, FiCopy, FiInfo, FiCamera, FiMonitor, FiExternalLink } from 'react-icons/fi'
 
 // --- Constants ---
 const AGENT_ID = '69a141d1f77666f08532da44'
@@ -483,9 +483,17 @@ export default function Page() {
       // Server route failed, fall through to client-side approach
     }
 
-    // Fallback: client-side Blob download
+    // Fallback: client-side Blob download with Notepad++ formatting
     try {
-      const blob = new Blob([text], { type: 'application/octet-stream' })
+      // Normalize to CRLF line endings and add UTF-8 BOM for Notepad++
+      const crlfText = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n').replace(/\n/g, '\r\n')
+      const bom = new Uint8Array([0xEF, 0xBB, 0xBF])
+      const encoder = new TextEncoder()
+      const textBytes = encoder.encode(crlfText)
+      const combined = new Uint8Array(bom.length + textBytes.length)
+      combined.set(bom)
+      combined.set(textBytes, bom.length)
+      const blob = new Blob([combined], { type: 'application/octet-stream' })
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
@@ -758,6 +766,24 @@ export default function Page() {
                       </>
                     )}
                   </Button>
+                </div>
+
+                {/* Notepad++ Tip */}
+                <div className="border border-border bg-secondary/50 px-4 py-3">
+                  <div className="flex items-start gap-2">
+                    <FiInfo className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="text-xs font-mono text-foreground font-medium">Open with Notepad++</p>
+                      <p className="text-xs font-mono text-muted-foreground leading-relaxed">
+                        The .wrt file is formatted with UTF-8 encoding and Windows line endings for full Notepad++ compatibility.
+                        After downloading, right-click the file and select <span className="text-foreground">&quot;Edit with Notepad++&quot;</span> or
+                        open Notepad++ and use <span className="text-foreground">File &gt; Open</span>.
+                      </p>
+                      <p className="text-xs font-mono text-muted-foreground">
+                        You can also set Notepad++ as the default app for .wrt files: right-click the file &gt; <span className="text-foreground">Open with</span> &gt; <span className="text-foreground">Choose another app</span> &gt; select Notepad++ &gt; check <span className="text-foreground">&quot;Always use this app&quot;</span>.
+                      </p>
+                    </div>
+                  </div>
                 </div>
 
                 {/* Status badge */}
